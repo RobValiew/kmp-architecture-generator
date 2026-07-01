@@ -1,326 +1,275 @@
 package com.vali.kmpgenerator
 
 import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.options.Option
 import java.io.File
 
 abstract class CreateKmpFeatureTask : DefaultTask() {
 
-    private var featureName: String = ""
-    private var architectureName: String? = null
-    private var packageNameOption: String? = null
-    private var outputDirOption: String? = null
-    private var diName: String? = null
-    private var recreate: Boolean = false
-    private var networkingName: String? = null
+    @get:Internal
+    abstract val projectDirectory: DirectoryProperty
 
-    @Option(
-        option = "name",
-        description = "Name of feature module. Examples: Profile, Products, Settings"
-    )
+    @get:Input
+    abstract val defaultPackageName: Property<String>
+
+    @get:Input
+    abstract val defaultOutputDir: Property<String>
+
+    @get:Input
+    abstract val defaultArchitecture: Property<String>
+
+    @get:Input
+    abstract val defaultDi: Property<String>
+
+    @get:Input
+    abstract val defaultNetworking: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val featureNameOption: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val architectureOption: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val packageNameOption: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val outputDirOption: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val diOption: Property<String>
+
+    @get:Input
+    @get:Optional
+    abstract val networkingOption: Property<String>
+
+    @get:Input
+    abstract val recreateOption: Property<Boolean>
+
+    init {
+        recreateOption.convention(false)
+    }
+
+    @Option(option = "name", description = "Feature name")
     fun setFeatureName(value: String) {
-        featureName = value
+        featureNameOption.set(value)
     }
 
-    @Option(
-        option = "architecture",
-        description = "Architecture type: mvi or mvvm"
-    )
+    @Option(option = "architecture", description = "Architecture type: mvi or mvvm")
     fun setArchitecture(value: String) {
-        architectureName = value
+        architectureOption.set(value)
     }
 
-    @Option(
-        option = "packageName",
-        description = "Base package name. Example: com.example.shared"
-    )
+    @Option(option = "packageName", description = "Base package name")
     fun setPackageName(value: String) {
-        packageNameOption = value
+        packageNameOption.set(value)
     }
 
-    @Option(
-        option = "outputDir",
-        description = "Output source directory. Default: src/commonMain/kotlin"
-    )
+    @Option(option = "outputDir", description = "Output directory")
     fun setOutputDir(value: String) {
-        outputDirOption = value
+        outputDirOption.set(value)
     }
 
-    @Option(
-        option = "di",
-        description = "DI type: none or koin"
-    )
+    @Option(option = "di", description = "DI type: none or koin")
     fun setDi(value: String) {
-        diName = value
+        diOption.set(value)
     }
 
-    @Option(
-        option = "recreate",
-        description = "Delete existing generated feature folder and create it again"
-    )
-    fun setRecreate(value: Boolean) {
-        recreate = value
-    }
-
-    @Option(
-        option = "networking",
-        description = "Networking type: none or ktor"
-    )
+    @Option(option = "networking", description = "Networking type: none or ktor")
     fun setNetworking(value: String) {
-        networkingName = value
+        networkingOption.set(value)
+    }
+
+    @Option(option = "recreate", description = "Recreate existing generated feature")
+    fun setRecreate(value: Boolean) {
+        recreateOption.set(value)
     }
 
     @TaskAction
     fun generate() {
-        require(featureName.isNotBlank()) {
-            "Feature name is required. Example: ./gradlew createKmpFeature --name Profile"
-        }
+        val featureName = featureNameOption.orNull
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: error("Missing required option: --name")
 
-        val extension = project.extensions.findByType(
-            KmpArchitectureGeneratorExtension::class.java
-        ) ?: KmpArchitectureGeneratorExtension()
+        val architecture = Architecture.from(
+            architectureOption.orNull ?: defaultArchitecture.get()
+        )
 
-        val resolvedArchitectureName = architectureName ?: extension.defaultArchitecture
-        val resolvedPackageName = packageNameOption ?: extension.packageName
-        val resolvedOutputDir = outputDirOption ?: extension.outputDir
-        val resolvedDiName = diName ?: extension.defaultDi
-        val resolvedNetworkingName = networkingName ?: extension.defaultNetworking
+        val packageName = packageNameOption.orNull ?: defaultPackageName.get()
+        val outputDir = outputDirOption.orNull ?: defaultOutputDir.get()
 
+        val di = Di.from(
+            diOption.orNull ?: defaultDi.get()
+        )
 
-        val architecture = Architecture.from(resolvedArchitectureName)
-        val di = Di.from(resolvedDiName)
-        val networking = Networking.from(resolvedNetworkingName)
+        val networking = Networking.from(
+            networkingOption.orNull ?: defaultNetworking.get()
+        )
+
+        val recreate = recreateOption.get()
 
         val classPrefix = featureName.toPascalCase()
-        val featurePackageSegment = featureName.toPackageSegment()
+        val featureDirectoryName = featureName.toPackageSegment()
+        val packagePath = packageName.replace(".", File.separator)
 
-        val baseDirectory = File(
-            project.projectDir,
-            "$resolvedOutputDir/${resolvedPackageName.replace(".", "/")}/features/$featurePackageSegment"
-        )
+        val outputRoot = projectDirectory
+            .get()
+            .asFile
+            .resolve(outputDir)
+            .resolve(packagePath)
 
-        val featurePackage = "$resolvedPackageName.features.$featurePackageSegment"
+        val featureDir = outputRoot
+            .resolve("features")
+            .resolve(featureDirectoryName)
 
-        generateNetworkCoreIfNeeded(
-            outputDir = resolvedOutputDir,
-            packageName = resolvedPackageName,
-            networking = networking,
-            di = di
-        )
+        val featurePackage = "$packageName.features.$featureDirectoryName"
 
         recreateFeatureDirectoryIfNeeded(
-            baseDirectory = baseDirectory,
-            classPrefix = classPrefix
-        )
-
-        writeMarkerFile(
-            baseDirectory = baseDirectory,
-            classPrefix = classPrefix,
+            featureName = featureName,
+            featureDir = featureDir,
             architecture = architecture,
-            di = di
+            recreate = recreate
         )
 
         when (architecture) {
             Architecture.MVI -> generateMviFeature(
-                baseDirectory = baseDirectory,
-                packageName = featurePackage,
+                featureDir = featureDir,
+                featurePackage = featurePackage,
                 classPrefix = classPrefix,
                 di = di,
                 networking = networking
             )
 
             Architecture.MVVM -> generateMvvmFeature(
-                baseDirectory = baseDirectory,
-                packageName = featurePackage,
+                featureDir = featureDir,
+                featurePackage = featurePackage,
                 classPrefix = classPrefix,
                 di = di,
                 networking = networking
             )
         }
 
-        logger.lifecycle(
-            "Generated $architecture feature '$classPrefix' with DI '$di' in: ${baseDirectory.absolutePath}"
+        generateCommonLayers(
+            featureDir = featureDir,
+            featurePackage = featurePackage,
+            classPrefix = classPrefix,
+            di = di,
+            networking = networking
         )
+
+        generateNetworkCoreIfNeeded(
+            outputRoot = outputRoot,
+            packageName = packageName,
+            di = di,
+            networking = networking
+        )
+
+        writeMarkerFile(
+            featureDir = featureDir,
+            featureName = featureName,
+            architecture = architecture,
+            di = di,
+            networking = networking
+        )
+
+        logger.lifecycle("KMP feature '$featureName' was generated successfully.")
     }
 
     private fun recreateFeatureDirectoryIfNeeded(
-        baseDirectory: File,
-        classPrefix: String
+        featureName: String,
+        featureDir: File,
+        architecture: Architecture,
+        recreate: Boolean
     ) {
-        if (!recreate) {
+        if (!featureDir.exists()) {
             return
         }
 
-        if (!baseDirectory.exists()) {
-            logger.lifecycle(
-                "Recreate requested for '$classPrefix', but feature directory does not exist yet."
-            )
-            return
-        }
-
-        val markerFile = File(baseDirectory, ".kmp-feature-generator")
+        val markerFile = featureDir.resolve(MARKER_FILE_NAME)
 
         if (!markerFile.exists()) {
             error(
-                "Cannot recreate feature '$classPrefix'. " +
-                        "Directory exists, but marker file was not found: ${markerFile.absolutePath}. " +
-                        "This folder may contain manually written code. Delete it manually if you are sure."
+                "Cannot recreate feature '$featureName'. Directory exists, but marker file was not found. " +
+                        "This directory may contain manually written code. Delete it manually if you really want to recreate it."
             )
         }
 
-        logger.lifecycle(
-            "Recreating feature '$classPrefix'. Existing generated folder will be deleted: ${baseDirectory.absolutePath}"
-        )
-
-        val deleted = baseDirectory.deleteRecursively()
-
-        if (!deleted) {
-            error(
-                "Failed to delete existing feature directory: ${baseDirectory.absolutePath}"
-            )
-        }
-    }
-    private fun generateNetworkCoreIfNeeded(
-        outputDir: String,
-        packageName: String,
-        networking: Networking,
-        di: Di
-    ) {
-        if (networking != Networking.KTOR) {
-            return
-        }
-
-        val networkDirectory = File(
-            project.projectDir,
-            "$outputDir/${packageName.replace(".", "/")}/core/network"
-        )
-
-        writeFile(
-            file = File(networkDirectory, "HttpClientFactory.kt"),
-            content = generateHttpClientFactory(packageName)
-        )
-
-        if (di == Di.KOIN) {
-            writeFile(
-                file = File(networkDirectory, "NetworkModule.kt"),
-                content = generateNetworkModule(packageName)
-            )
-        }
-    }
-    private fun generateHttpClientFactory(
-        packageName: String
-    ): String {
-        return """
-        package $packageName.core.network
-
-        import io.ktor.client.HttpClient
-        import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-        import io.ktor.serialization.kotlinx.json.json
-        import kotlinx.serialization.json.Json
-
-        object HttpClientFactory {
-
-            fun create(): HttpClient {
-                return HttpClient {
-                    install(ContentNegotiation) {
-                        json(
-                            Json {
-                                ignoreUnknownKeys = true
-                                isLenient = true
-                                explicitNulls = false
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    """.trimIndent()
-    }
-    private fun generateNetworkModule(
-        packageName: String
-    ): String {
-        return """
-        package $packageName.core.network
-
-        import org.koin.dsl.module
-
-        val networkModule = module {
-            single {
-                HttpClientFactory.create()
-            }
-        }
-    """.trimIndent()
-    }
-    private fun writeMarkerFile(
-        baseDirectory: File,
-        classPrefix: String,
-        architecture: Architecture,
-        di: Di
-    ) {
-        val markerFile = File(baseDirectory, ".kmp-feature-generator")
-
-        if (markerFile.exists()) {
+        if (!recreate) {
             val markerText = markerFile.readText()
-
-            val architectureLine = markerText
+            val previousArchitecture = markerText
                 .lineSequence()
                 .firstOrNull { line -> line.startsWith("architecture=") }
-
-            val existingArchitecture = architectureLine
                 ?.substringAfter("architecture=")
-                ?.trim()
 
-            if (
-                existingArchitecture != null &&
-                !existingArchitecture.equals(architecture.name, ignoreCase = true)
-            ) {
+            if (previousArchitecture != null && previousArchitecture != architecture.name) {
                 error(
-                    "Feature '$classPrefix' was already generated with architecture '$existingArchitecture'. " +
-                            "You are trying to generate it with '${architecture.name}'. " +
-                            "Use another feature name or delete the existing feature folder first."
+                    "Feature '$featureName' already exists with architecture '$previousArchitecture'. " +
+                            "Requested architecture is '${architecture.name}'. Use --recreate to recreate it."
                 )
             }
 
-            logger.lifecycle("Feature marker already exists: ${markerFile.absolutePath}")
-            return
+            error(
+                "Feature '$featureName' already exists. Use --recreate to recreate it."
+            )
         }
 
-        markerFile.parentFile.mkdirs()
-        markerFile.writeText(
-            """
-            name=$classPrefix
-            architecture=${architecture.name}
-            di=${di.name}
-        """.trimIndent()
-        )
+        featureDir.deleteRecursively()
+    }
 
-        logger.lifecycle("Created marker file: ${markerFile.absolutePath}")
+    private fun writeMarkerFile(
+        featureDir: File,
+        featureName: String,
+        architecture: Architecture,
+        di: Di,
+        networking: Networking
+    ) {
+        writeFile(
+            file = featureDir.resolve(MARKER_FILE_NAME),
+            content = """
+                name=$featureName
+                architecture=${architecture.name}
+                di=${di.name}
+                networking=${networking.name}
+            """.trimIndent(),
+            overwrite = true
+        )
     }
 
     private fun generateMviFeature(
-        baseDirectory: File,
-        packageName: String,
+        featureDir: File,
+        featurePackage: String,
         classPrefix: String,
         di: Di,
         networking: Networking
     ) {
         writeFile(
-            file = File(baseDirectory, "presentation/${classPrefix}State.kt"),
+            file = featureDir.resolve("presentation/${classPrefix}State.kt"),
             content = """
-                package $packageName.presentation
+                package $featurePackage.presentation
 
                 data class ${classPrefix}State(
                     val isLoading: Boolean = false,
-                    val error: String? = null
+                    val errorMessage: String? = null
                 )
             """.trimIndent()
         )
 
         writeFile(
-            file = File(baseDirectory, "presentation/${classPrefix}Action.kt"),
+            file = featureDir.resolve("presentation/${classPrefix}Action.kt"),
             content = """
-                package $packageName.presentation
+                package $featurePackage.presentation
 
                 sealed interface ${classPrefix}Action {
                     data object Load : ${classPrefix}Action
@@ -330,9 +279,9 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
         )
 
         writeFile(
-            file = File(baseDirectory, "presentation/${classPrefix}Result.kt"),
+            file = featureDir.resolve("presentation/${classPrefix}Result.kt"),
             content = """
-                package $packageName.presentation
+                package $featurePackage.presentation
 
                 sealed interface ${classPrefix}Result {
                     data object Loading : ${classPrefix}Result
@@ -343,9 +292,9 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
         )
 
         writeFile(
-            file = File(baseDirectory, "presentation/${classPrefix}Effect.kt"),
+            file = featureDir.resolve("presentation/${classPrefix}Effect.kt"),
             content = """
-                package $packageName.presentation
+                package $featurePackage.presentation
 
                 sealed interface ${classPrefix}Effect {
                     data class ShowMessage(val message: String) : ${classPrefix}Effect
@@ -354,37 +303,31 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
         )
 
         writeFile(
-            file = File(baseDirectory, "presentation/${classPrefix}Reducer.kt"),
+            file = featureDir.resolve("presentation/${classPrefix}Reducer.kt"),
             content = """
-                package $packageName.presentation
+                package $featurePackage.presentation
 
                 class ${classPrefix}Reducer {
 
                     fun reduce(
-                        currentState: ${classPrefix}State,
+                        state: ${classPrefix}State,
                         result: ${classPrefix}Result
                     ): ${classPrefix}State {
                         return when (result) {
-                            ${classPrefix}Result.Loading -> {
-                                currentState.copy(
-                                    isLoading = true,
-                                    error = null
-                                )
-                            }
+                            ${classPrefix}Result.Loading -> state.copy(
+                                isLoading = true,
+                                errorMessage = null
+                            )
 
-                            ${classPrefix}Result.Success -> {
-                                currentState.copy(
-                                    isLoading = false,
-                                    error = null
-                                )
-                            }
+                            ${classPrefix}Result.Success -> state.copy(
+                                isLoading = false,
+                                errorMessage = null
+                            )
 
-                            is ${classPrefix}Result.Error -> {
-                                currentState.copy(
-                                    isLoading = false,
-                                    error = result.message
-                                )
-                            }
+                            is ${classPrefix}Result.Error -> state.copy(
+                                isLoading = false,
+                                errorMessage = result.message
+                            )
                         }
                     }
                 }
@@ -392,15 +335,14 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
         )
 
         writeFile(
-            file = File(baseDirectory, "presentation/${classPrefix}ViewModel.kt"),
+            file = featureDir.resolve("presentation/${classPrefix}ViewModel.kt"),
             content = """
-                package $packageName.presentation
+                package $featurePackage.presentation
 
-                import $packageName.domain.${classPrefix}UseCase
+                import $featurePackage.domain.${classPrefix}UseCase
                 import kotlinx.coroutines.CoroutineScope
                 import kotlinx.coroutines.Dispatchers
                 import kotlinx.coroutines.SupervisorJob
-                import kotlinx.coroutines.cancel
                 import kotlinx.coroutines.flow.MutableSharedFlow
                 import kotlinx.coroutines.flow.MutableStateFlow
                 import kotlinx.coroutines.flow.SharedFlow
@@ -411,7 +353,7 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
 
                 class ${classPrefix}ViewModel(
                     private val useCase: ${classPrefix}UseCase,
-                    private val reducer: ${classPrefix}Reducer = ${classPrefix}Reducer()
+                    private val reducer: ${classPrefix}Reducer
                 ) {
 
                     private val viewModelScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -424,7 +366,7 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
 
                     fun onAction(action: ${classPrefix}Action) {
                         when (action) {
-                            ${classPrefix}Action.Load -> load()
+                            ${classPrefix}Action.Load,
                             ${classPrefix}Action.Retry -> load()
                         }
                     }
@@ -433,11 +375,12 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
                         viewModelScope.launch {
                             reduce(${classPrefix}Result.Loading)
 
-                            try {
+                            runCatching {
                                 useCase()
+                            }.onSuccess {
                                 reduce(${classPrefix}Result.Success)
-                            } catch (exception: Exception) {
-                                val message = exception.message ?: "Unknown error"
+                            }.onFailure { throwable ->
+                                val message = throwable.message ?: "Unknown error"
                                 reduce(${classPrefix}Result.Error(message))
                                 _effect.emit(${classPrefix}Effect.ShowMessage(message))
                             }
@@ -445,101 +388,47 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
                     }
 
                     private fun reduce(result: ${classPrefix}Result) {
-                        val currentState = _state.value
-                        val newState = reducer.reduce(currentState, result)
-                        _state.value = newState
-                    }
-
-                    fun clear() {
-                        viewModelScope.cancel()
+                        _state.value = reducer.reduce(
+                            state = _state.value,
+                            result = result
+                        )
                     }
                 }
             """.trimIndent()
         )
-
-        generateCommonLayers(
-            baseDirectory = baseDirectory,
-            packageName = packageName,
-            classPrefix = classPrefix,
-            di = di,
-            architecture = Architecture.MVI,
-            networking = networking
-
-        )
-    }
-
-    private fun generateEmptyRemoteDataSource(
-        packageName: String,
-        classPrefix: String
-    ): String {
-        return """
-        package $packageName.data
-
-        class ${classPrefix}RemoteDataSource {
-
-            suspend fun load() {
-                // TODO: Implement remote request
-            }
-        }
-    """.trimIndent()
-    }
-
-    private fun generateKtorRemoteDataSource(
-        packageName: String,
-        classPrefix: String
-    ): String {
-        return """
-        package $packageName.data
-
-        import io.ktor.client.HttpClient
-        import io.ktor.client.call.body
-        import io.ktor.client.request.get
-
-        class ${classPrefix}RemoteDataSource(
-            private val httpClient: HttpClient
-        ) {
-
-            suspend fun load() {
-                // TODO: Replace endpoint with real API URL
-                httpClient.get("https://example.com/api/${classPrefix.replaceFirstChar { it.lowercase() }}").body<Unit>()
-            }
-        }
-    """.trimIndent()
     }
 
     private fun generateMvvmFeature(
-        baseDirectory: File,
-        packageName: String,
+        featureDir: File,
+        featurePackage: String,
         classPrefix: String,
         di: Di,
         networking: Networking
     ) {
         writeFile(
-            file = File(baseDirectory, "presentation/${classPrefix}UiState.kt"),
+            file = featureDir.resolve("presentation/${classPrefix}UiState.kt"),
             content = """
-                package $packageName.presentation
+                package $featurePackage.presentation
 
                 data class ${classPrefix}UiState(
                     val isLoading: Boolean = false,
-                    val error: String? = null
+                    val errorMessage: String? = null
                 )
             """.trimIndent()
         )
 
         writeFile(
-            file = File(baseDirectory, "presentation/${classPrefix}ViewModel.kt"),
+            file = featureDir.resolve("presentation/${classPrefix}ViewModel.kt"),
             content = """
-                package $packageName.presentation
+                package $featurePackage.presentation
 
-                import $packageName.domain.${classPrefix}UseCase
+                import $featurePackage.domain.${classPrefix}UseCase
                 import kotlinx.coroutines.CoroutineScope
                 import kotlinx.coroutines.Dispatchers
                 import kotlinx.coroutines.SupervisorJob
-                import kotlinx.coroutines.cancel
                 import kotlinx.coroutines.flow.MutableStateFlow
                 import kotlinx.coroutines.flow.StateFlow
                 import kotlinx.coroutines.flow.asStateFlow
-                import kotlinx.coroutines.flow.update
                 import kotlinx.coroutines.launch
 
                 class ${classPrefix}ViewModel(
@@ -553,66 +442,42 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
 
                     fun load() {
                         viewModelScope.launch {
-                            _uiState.update { currentState ->
-                                currentState.copy(
-                                    isLoading = true,
-                                    error = null
+                            _uiState.value = _uiState.value.copy(
+                                isLoading = true,
+                                errorMessage = null
+                            )
+
+                            runCatching {
+                                useCase()
+                            }.onSuccess {
+                                _uiState.value = _uiState.value.copy(
+                                    isLoading = false,
+                                    errorMessage = null
+                                )
+                            }.onFailure { throwable ->
+                                _uiState.value = _uiState.value.copy(
+                                    isLoading = false,
+                                    errorMessage = throwable.message ?: "Unknown error"
                                 )
                             }
-
-                            try {
-                                useCase()
-
-                                _uiState.update { currentState ->
-                                    currentState.copy(
-                                        isLoading = false,
-                                        error = null
-                                    )
-                                }
-                            } catch (exception: Exception) {
-                                _uiState.update { currentState ->
-                                    currentState.copy(
-                                        isLoading = false,
-                                        error = exception.message ?: "Unknown error"
-                                    )
-                                }
-                            }
                         }
-                    }
-
-                    fun retry() {
-                        load()
-                    }
-
-                    fun clear() {
-                        viewModelScope.cancel()
                     }
                 }
             """.trimIndent()
         )
-
-        generateCommonLayers(
-            baseDirectory = baseDirectory,
-            packageName = packageName,
-            classPrefix = classPrefix,
-            di = di,
-            architecture = Architecture.MVVM,
-            networking = networking
-        )
     }
 
     private fun generateCommonLayers(
-        baseDirectory: File,
-        packageName: String,
+        featureDir: File,
+        featurePackage: String,
         classPrefix: String,
         di: Di,
-        architecture: Architecture,
         networking: Networking
     ) {
         writeFile(
-            file = File(baseDirectory, "domain/${classPrefix}Repository.kt"),
+            file = featureDir.resolve("domain/${classPrefix}Repository.kt"),
             content = """
-                package $packageName.domain
+                package $featurePackage.domain
 
                 interface ${classPrefix}Repository {
                     suspend fun load()
@@ -621,13 +486,14 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
         )
 
         writeFile(
-            file = File(baseDirectory, "domain/${classPrefix}UseCase.kt"),
+            file = featureDir.resolve("domain/${classPrefix}UseCase.kt"),
             content = """
-                package $packageName.domain
+                package $featurePackage.domain
 
                 class ${classPrefix}UseCase(
                     private val repository: ${classPrefix}Repository
                 ) {
+
                     suspend operator fun invoke() {
                         repository.load()
                     }
@@ -635,22 +501,26 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
             """.trimIndent()
         )
 
-        val remoteDataSourceContent = when (networking) {
-            Networking.NONE -> generateEmptyRemoteDataSource(packageName, classPrefix)
-            Networking.KTOR -> generateKtorRemoteDataSource(packageName, classPrefix)
+        when (networking) {
+            Networking.NONE -> generateEmptyRemoteDataSource(
+                featureDir = featureDir,
+                featurePackage = featurePackage,
+                classPrefix = classPrefix
+            )
+
+            Networking.KTOR -> generateKtorRemoteDataSource(
+                featureDir = featureDir,
+                featurePackage = featurePackage,
+                classPrefix = classPrefix
+            )
         }
 
         writeFile(
-            file = File(baseDirectory, "data/${classPrefix}RemoteDataSource.kt"),
-            content = remoteDataSourceContent
-        )
-
-        writeFile(
-            file = File(baseDirectory, "data/${classPrefix}RepositoryImpl.kt"),
+            file = featureDir.resolve("data/${classPrefix}RepositoryImpl.kt"),
             content = """
-                package $packageName.data
+                package $featurePackage.data
 
-                import $packageName.domain.${classPrefix}Repository
+                import $featurePackage.domain.${classPrefix}Repository
 
                 class ${classPrefix}RepositoryImpl(
                     private val remoteDataSource: ${classPrefix}RemoteDataSource
@@ -663,61 +533,96 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
             """.trimIndent()
         )
 
-        val moduleContent = when (di) {
+        when (di) {
             Di.NONE -> generateEmptyModule(
-                packageName = packageName,
+                featureDir = featureDir,
+                featurePackage = featurePackage,
                 classPrefix = classPrefix
             )
 
             Di.KOIN -> generateKoinModule(
-                packageName = packageName,
+                featureDir = featureDir,
+                featurePackage = featurePackage,
                 classPrefix = classPrefix,
-                architecture = architecture,
                 networking = networking
             )
         }
+    }
+
+    private fun generateEmptyRemoteDataSource(
+        featureDir: File,
+        featurePackage: String,
+        classPrefix: String
+    ) {
+        writeFile(
+            file = featureDir.resolve("data/${classPrefix}RemoteDataSource.kt"),
+            content = """
+                package $featurePackage.data
+
+                class ${classPrefix}RemoteDataSource {
+
+                    suspend fun load() {
+                        // TODO: Implement remote data loading
+                    }
+                }
+            """.trimIndent()
+        )
+    }
+
+    private fun generateKtorRemoteDataSource(
+        featureDir: File,
+        featurePackage: String,
+        classPrefix: String
+    ) {
+        val endpointName = classPrefix.replaceFirstChar { char ->
+            char.lowercase()
+        }
 
         writeFile(
-            file = File(baseDirectory, "di/${classPrefix}Module.kt"),
-            content = moduleContent
+            file = featureDir.resolve("data/${classPrefix}RemoteDataSource.kt"),
+            content = """
+                package $featurePackage.data
+
+                import io.ktor.client.HttpClient
+                import io.ktor.client.call.body
+                import io.ktor.client.request.get
+
+                class ${classPrefix}RemoteDataSource(
+                    private val httpClient: HttpClient
+                ) {
+
+                    suspend fun load() {
+                        httpClient.get("https://example.com/api/$endpointName").body<Unit>()
+                    }
+                }
+            """.trimIndent()
         )
     }
 
     private fun generateEmptyModule(
-        packageName: String,
+        featureDir: File,
+        featurePackage: String,
         classPrefix: String
-    ): String {
-        return """
-            package $packageName.di
+    ) {
+        writeFile(
+            file = featureDir.resolve("di/${classPrefix}Module.kt"),
+            content = """
+                package $featurePackage.di
 
-            // TODO: Add DI module here.
-            // Later this file can generate Koin module for ${classPrefix} feature.
-        """.trimIndent()
+                // Dependency injection is disabled for this feature.
+                // Create your platform-specific or manual dependencies here if needed.
+            """.trimIndent()
+        )
     }
 
     private fun generateKoinModule(
-        packageName: String,
+        featureDir: File,
+        featurePackage: String,
         classPrefix: String,
-        architecture: Architecture,
         networking: Networking
-    ): String {
+    ) {
         val moduleName = classPrefix.replaceFirstChar { char ->
             char.lowercase()
-        } + "Module"
-
-        val reducerImport = when (architecture) {
-            Architecture.MVI -> "import $packageName.presentation.${classPrefix}Reducer"
-            Architecture.MVVM -> ""
-        }
-
-        val reducerFactory = when (architecture) {
-            Architecture.MVI -> "factory { ${classPrefix}Reducer() }"
-            Architecture.MVVM -> ""
-        }
-
-        val viewModelFactory = when (architecture) {
-            Architecture.MVI -> "factory { ${classPrefix}ViewModel(get(), get()) }"
-            Architecture.MVVM -> "factory { ${classPrefix}ViewModel(get()) }"
         }
 
         val remoteDataSourceFactory = when (networking) {
@@ -725,35 +630,144 @@ abstract class CreateKmpFeatureTask : DefaultTask() {
             Networking.KTOR -> "single { ${classPrefix}RemoteDataSource(get()) }"
         }
 
-        return """
-            package $packageName.di
+        val reducerFactory = if (featureDir.resolve("presentation/${classPrefix}Reducer.kt").exists()) {
+            "    factory { ${classPrefix}Reducer() }\n"
+        } else {
+            ""
+        }
 
-            import $packageName.data.${classPrefix}RemoteDataSource
-            import $packageName.data.${classPrefix}RepositoryImpl
-            import $packageName.domain.${classPrefix}Repository
-            import $packageName.domain.${classPrefix}UseCase
-            import $packageName.presentation.${classPrefix}ViewModel
-            $reducerImport
-            import org.koin.dsl.module
+        val viewModelFactory = if (reducerFactory.isNotEmpty()) {
+            "    factory { ${classPrefix}ViewModel(get(), get()) }"
+        } else {
+            "    factory { ${classPrefix}ViewModel(get()) }"
+        }
 
-            val $moduleName = module {
-                $remoteDataSourceFactory
-                single<${classPrefix}Repository> { ${classPrefix}RepositoryImpl(get()) }
-                factory { ${classPrefix}UseCase(get()) }
-                $reducerFactory
-                $viewModelFactory
-            }
-        """.trimIndent()
+        val reducerImport = if (reducerFactory.isNotEmpty()) {
+            "import $featurePackage.presentation.${classPrefix}Reducer\n"
+        } else {
+            ""
+        }
+
+        writeFile(
+            file = featureDir.resolve("di/${classPrefix}Module.kt"),
+            content = """
+                package $featurePackage.di
+
+                import $featurePackage.data.${classPrefix}RemoteDataSource
+                import $featurePackage.data.${classPrefix}RepositoryImpl
+                import $featurePackage.domain.${classPrefix}Repository
+                import $featurePackage.domain.${classPrefix}UseCase
+                ${reducerImport}import $featurePackage.presentation.${classPrefix}ViewModel
+                import org.koin.dsl.module
+
+                val ${moduleName}Module = module {
+                    $remoteDataSourceFactory
+                    single<${classPrefix}Repository> { ${classPrefix}RepositoryImpl(get()) }
+                    factory { ${classPrefix}UseCase(get()) }
+                $reducerFactory    $viewModelFactory
+                }
+            """.trimIndent()
+        )
     }
 
-    private fun writeFile(file: File, content: String) {
-        if (file.exists()) {
-            logger.lifecycle("Skipped existing file: ${file.absolutePath}")
+    private fun generateNetworkCoreIfNeeded(
+        outputRoot: File,
+        packageName: String,
+        di: Di,
+        networking: Networking
+    ) {
+        if (networking != Networking.KTOR) {
+            return
+        }
+
+        val networkDir = outputRoot.resolve("core/network")
+        val networkPackage = "$packageName.core.network"
+
+        generateHttpClientFactory(
+            networkDir = networkDir,
+            networkPackage = networkPackage
+        )
+
+        if (di == Di.KOIN) {
+            generateNetworkModule(
+                networkDir = networkDir,
+                networkPackage = networkPackage
+            )
+        }
+    }
+
+    private fun generateHttpClientFactory(
+        networkDir: File,
+        networkPackage: String
+    ) {
+        writeFile(
+            file = networkDir.resolve("HttpClientFactory.kt"),
+            content = """
+                package $networkPackage
+
+                import io.ktor.client.HttpClient
+                import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+                import io.ktor.serialization.kotlinx.json.json
+                import kotlinx.serialization.json.Json
+
+                object HttpClientFactory {
+
+                    fun create(): HttpClient {
+                        return HttpClient {
+                            install(ContentNegotiation) {
+                                json(
+                                    Json {
+                                        ignoreUnknownKeys = true
+                                        isLenient = true
+                                        explicitNulls = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            """.trimIndent(),
+            overwrite = false
+        )
+    }
+
+    private fun generateNetworkModule(
+        networkDir: File,
+        networkPackage: String
+    ) {
+        writeFile(
+            file = networkDir.resolve("NetworkModule.kt"),
+            content = """
+                package $networkPackage
+
+                import org.koin.dsl.module
+
+                val networkModule = module {
+                    single {
+                        HttpClientFactory.create()
+                    }
+                }
+            """.trimIndent(),
+            overwrite = false
+        )
+    }
+
+    private fun writeFile(
+        file: File,
+        content: String,
+        overwrite: Boolean = true
+    ) {
+        if (file.exists() && !overwrite) {
+            logger.lifecycle("File already exists, skipping: ${file.path}")
             return
         }
 
         file.parentFile.mkdirs()
         file.writeText(content)
-        logger.lifecycle("Created file: ${file.absolutePath}")
+        logger.lifecycle("Generated file: ${file.path}")
+    }
+
+    private companion object {
+        const val MARKER_FILE_NAME = ".kmp-feature-generator"
     }
 }

@@ -1,4 +1,4 @@
-package test.kotlin.com.vali.kmpgenerator
+package com.vali.kmpgenerator
 
 
 import org.gradle.testkit.runner.GradleRunner
@@ -254,7 +254,11 @@ class CreateKmpFeatureTaskTest {
             .buildAndFail()
 
         assertTrue(
-            result.output.contains("was already generated with architecture")
+            result.output.contains("Feature 'Profile' already exists with architecture 'MVI'")
+        )
+
+        assertTrue(
+            result.output.contains("Use --recreate to recreate it")
         )
     }
 
