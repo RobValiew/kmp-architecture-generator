@@ -1,16 +1,13 @@
 plugins {
     `kotlin-dsl`
     `java-gradle-plugin`
+    `maven-publish`
 }
 
 group = "com.vali"
-version = "1.0.0"
+version = "1.0.1"
 
-repositories {
-    google()
-    mavenCentral()
-    gradlePluginPortal()
-}
+
 dependencies {
     implementation("junit:junit:4.12")
     implementation("org.junit.jupiter:junit-jupiter:5.14.0")
