@@ -2,64 +2,77 @@
 
 Gradle plugin for generating Kotlin Multiplatform feature modules with MVI or MVVM architecture.
 
-The plugin helps quickly create a clean feature structure for KMP projects with optional Koin DI and Ktor networking support.
+The plugin helps quickly create a clean feature-first structure for KMP projects with optional Koin DI and Ktor networking support.
 
 ## Features
 
 - Generate Kotlin Multiplatform feature modules
 - Choose architecture: MVI or MVVM
 - Generate Clean Architecture layers:
-    - data
-    - domain
-    - presentation
-    - di
+  - data
+  - domain
+  - presentation
+  - di
 - Optional Koin DI module generation
 - Optional Ktor RemoteDataSource generation
 - Optional shared HttpClientFactory and NetworkModule generation
 - Safe architecture protection with marker files
 - Recreate existing generated feature with `--recreate`
+- Gradle configuration cache support
+- External usage via JitPack
 - Gradle TestKit coverage
 
-## Generated MVI structure
+## Installation via JitPack
 
-```text
-features/profile/
- ├── presentation/
- │   ├── ProfileState.kt
- │   ├── ProfileAction.kt
- │   ├── ProfileResult.kt
- │   ├── ProfileEffect.kt
- │   ├── ProfileReducer.kt
- │   └── ProfileViewModel.kt
- ├── domain/
- │   ├── ProfileRepository.kt
- │   └── ProfileUseCase.kt
- ├── data/
- │   ├── ProfileRemoteDataSource.kt
- │   └── ProfileRepositoryImpl.kt
- └── di/
-     └── ProfileModule.kt
-```
-## Generated MVVM structure
+The plugin can be used as an external Gradle plugin through JitPack.
 
-```text
-features/settings/
- ├── presentation/
- │   ├── SettingsUiState.kt
- │   └── SettingsViewModel.kt
- ├── domain/
- │   ├── SettingsRepository.kt
- │   └── SettingsUseCase.kt
- ├── data/
- │   ├── SettingsRemoteDataSource.kt
- │   └── SettingsRepositoryImpl.kt
- └── di/
-     └── SettingsModule.kt
+Add JitPack to `pluginManagement` in the root `settings.gradle.kts`:
+
+```kotlin
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+        maven("https://jitpack.io")
+    }
+
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == "com.vali.kmp-architecture-generator") {
+                useModule(
+                    "com.github.RobValiew.kmp-architecture-generator:kmp-architecture-generator-plugin:${requested.version}"
+                )
+            }
+        }
+    }
+}
 ```
 
-## Plugin setup
+Apply the plugin in your KMP module:
 
-For local development, include the plugin build in root `settings.gradle.kts`:
+```kotlin
+plugins {
+    kotlin("multiplatform")
+    id("com.vali.kmp-architecture-generator") version "v1.0.1"
+}
+```
+
+Then configure the generator:
+
+```kotlin
+kmpArchitectureGenerator {
+    packageName = "com.example.shared"
+    outputDir = "src/commonMain/kotlin"
+    defaultArchitecture = "mvi"
+    defaultDi = "none"
+    defaultNetworking = "none"
+}
+```
+
+## Local development setup
+
+For local development, include the plugin build in the root `settings.gradle.kts`:
 
 ```kotlin
 pluginManagement {
@@ -85,6 +98,7 @@ rootProject.name = "kmp-architecture-generator"
 
 include(":sample")
 ```
+
 Apply the plugin in your KMP module:
 
 ```kotlin
@@ -105,6 +119,7 @@ kmpArchitectureGenerator {
     defaultNetworking = "none"
 }
 ```
+
 ## Usage
 
 Generate an MVI feature:
@@ -137,6 +152,44 @@ Recreate an existing generated feature:
 ./gradlew :sample:createKmpFeature --name Profile --architecture mvvm --recreate
 ```
 
+## Generated MVI structure
+
+```text
+features/profile/
+ ├── presentation/
+ │   ├── ProfileState.kt
+ │   ├── ProfileAction.kt
+ │   ├── ProfileResult.kt
+ │   ├── ProfileEffect.kt
+ │   ├── ProfileReducer.kt
+ │   └── ProfileViewModel.kt
+ ├── domain/
+ │   ├── ProfileRepository.kt
+ │   └── ProfileUseCase.kt
+ ├── data/
+ │   ├── ProfileRemoteDataSource.kt
+ │   └── ProfileRepositoryImpl.kt
+ └── di/
+     └── ProfileModule.kt
+```
+
+## Generated MVVM structure
+
+```text
+features/settings/
+ ├── presentation/
+ │   ├── SettingsUiState.kt
+ │   └── SettingsViewModel.kt
+ ├── domain/
+ │   ├── SettingsRepository.kt
+ │   └── SettingsUseCase.kt
+ ├── data/
+ │   ├── SettingsRemoteDataSource.kt
+ │   └── SettingsRepositoryImpl.kt
+ └── di/
+     └── SettingsModule.kt
+```
+
 ## Generated packages
 
 If the DSL is configured like this:
@@ -162,6 +215,32 @@ package com.vali.shared.features.profile.data
 package com.vali.shared.features.profile.di
 ```
 
+## Feature-first structure
+
+The generator uses a feature-first package structure.
+
+Each generated feature contains its own layers:
+
+```text
+features/map/
+ ├── data/
+ ├── domain/
+ ├── presentation/
+ └── di/
+
+features/tasks/
+ ├── data/
+ ├── domain/
+ ├── presentation/
+ └── di/
+```
+
+This does not create a separate Gradle module for each feature.
+
+All generated features are created inside the selected KMP module, usually `sharedLogic` or `shared`.
+
+This structure keeps all code related to one feature close together and is useful for medium and large KMP projects.
+
 ## Architecture protection
 
 The plugin creates a marker file inside each generated feature:
@@ -176,6 +255,7 @@ Example:
 name=Profile
 architecture=MVI
 di=KOIN
+networking=KTOR
 ```
 
 If a feature was generated as MVI and you try to generate it again as MVVM, the plugin stops with an error.
@@ -335,6 +415,12 @@ Run sample compilation:
 ./gradlew :sample:compileKotlinJvm
 ```
 
+Check Gradle configuration cache support:
+
+```bash
+./gradlew --configuration-cache :sample:createKmpFeature --name CacheTest --architecture mvi --di koin --networking ktor
+```
+
 The test suite covers:
 
 - MVI feature generation
@@ -342,14 +428,17 @@ The test suite covers:
 - Ktor + Koin generation
 - Architecture conflict protection
 - Recreate behavior
+- Gradle configuration cache compatibility
 
 ## Current status
 
 Version:
 
 ```text
-1.0.0
+1.0.1
 ```
+
+Version `1.0.1` includes Gradle configuration cache support and JitPack publishing configuration.
 
 Current supported options:
 
@@ -370,9 +459,9 @@ Current supported options:
 - Generate UseCase tests
 - Add local/remote repository strategy
 - Add iOS/SwiftUI wrapper generation
-- Publish to Gradle Plugin Portal
+- Add Gradle Plugin Portal publishing
+- Add optional feature module generation
 
-```markdown
 ## License
 
 This project is source-available, but it is not open-source.
